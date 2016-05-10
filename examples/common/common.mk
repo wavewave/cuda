@@ -41,7 +41,7 @@ endif
 HP_64           := $(strip $(shell uname -m | grep 64))
 
 # Basic directory setup
-CUDA_INSTALL_PATH ?= /usr/local/cuda
+CUDA_INSTALL_PATH ?= $(CUDA_PATH)
 CUDA_SDK_PATH     ?= /Developer/GPU\ Computing/C
 
 SRCDIR          ?= .

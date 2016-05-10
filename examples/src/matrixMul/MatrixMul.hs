@@ -20,9 +20,13 @@ import RandomVector
 
 -- System
 import Data.Array
+import Data.Array.Unsafe
 import System.IO
 import Foreign
+import Foreign.C.Types
 import qualified Foreign.CUDA as CUDA
+
+foreign import ccall unsafe "&matrixMul"  p_matrixMul :: FunPtr (Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> CInt -> CInt -> IO ())
 
 
 --------------------------------------------------------------------------------
@@ -67,25 +71,23 @@ matMultCUDA xs' ys' = doMult undefined xs' ys'
       -- Allocate memory and copy test data
       --
       CUDA.allocaArray (wx*hx) $ \d_xs -> do
-      CUDA.allocaArray (wy*hy) $ \d_ys -> do
-      CUDA.allocaArray (wy*hx) $ \d_zs -> do
-      withMatrix xs $ \p -> CUDA.pokeArray (wx*hx) p d_xs
-      withMatrix ys $ \p -> CUDA.pokeArray (wy*hy) p d_ys
+        CUDA.allocaArray (wy*hy) $ \d_ys -> do
+          CUDA.allocaArray (wy*hx) $ \d_zs -> do
+            withMatrix xs $ \p -> CUDA.pokeArray (wx*hx) p d_xs
+            withMatrix ys $ \p -> CUDA.pokeArray (wy*hy) p d_ys
 
-      -- Launch the kernel
-      --
-      let gridDim   = (wy`div`BLOCK_SIZE, hx`div`BLOCK_SIZE)
-          blockDim  = (BLOCK_SIZE,BLOCK_SIZE,1)
-          sharedMem = 2 * BLOCK_SIZE * BLOCK_SIZE * fromIntegral (sizeOf dummy)
+            -- Launch the kernel
+            --
+            let gridDim   = (wy`div`BLOCK_SIZE, hx`div`BLOCK_SIZE)
+                blockDim  = (BLOCK_SIZE,BLOCK_SIZE,1)
+                sharedMem = 2 * BLOCK_SIZE * BLOCK_SIZE * fromIntegral (sizeOf dummy)
 
-      CUDA.setConfig gridDim blockDim sharedMem Nothing
-      CUDA.setParams [CUDA.VArg d_xs, CUDA.VArg d_ys, CUDA.VArg d_zs, CUDA.IArg wx, CUDA.IArg wy]
-      CUDA.launch "matrixMul"
+            CUDA.launchKernel (castFunPtr p_matrixMul) gridDim blockDim sharedMem Nothing [CUDA.VArg d_xs, CUDA.VArg d_ys, CUDA.VArg d_zs, CUDA.IArg wx, CUDA.IArg wy]
 
-      -- Copy back result
-      zs <- newArray_ resBnds
-      withMatrix zs $ \p -> CUDA.peekArray (wy*hx) d_zs p
-      return zs
+            -- Copy back result
+            zs <- newArray_ resBnds
+            withMatrix zs $ \p -> CUDA.peekArray (wy*hx) d_zs p
+            return zs
 
 
 --------------------------------------------------------------------------------
@@ -101,6 +103,22 @@ main = do
   xs <- randomArr ((1,1),(8*BLOCK_SIZE, 4*BLOCK_SIZE)) :: IO (Matrix Float)
   ys <- randomArr ((1,1),(4*BLOCK_SIZE,12*BLOCK_SIZE)) :: IO (Matrix Float)
 
+  ref <- matMult xs ys
+  mat <- matMultCUDA xs ys 
+
+  {- 
+  reflst <- getElems ref
+  matlst <- getElems mat
+  let f x y = abs ((x-y)/(x+y+epsilon))
+      epsilon = 0.0005
+      
+  mapM_ print  . filter (\(x,y,z)-> z > 0.0005) $ (zipWith (\x y -> (x,y,f x y)) reflst matlst)
+  -}
+  
+  -- print =<< take 5 <$> getElems ref
+  -- print =<< take 5 <$> getElems mat
+
+ 
   putStr   "== Reference: " >> hFlush stdout
   (tr,ref) <- benchmark 100 (matMult xs ys) (return ())
   putStrLn $  shows (fromInteger (timeIn millisecond tr) / 100::Float) " ms"
