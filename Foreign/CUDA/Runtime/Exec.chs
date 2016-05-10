@@ -175,7 +175,7 @@ setParams = foldM_ k 0
       set arg s offset >>= nothingIfOk
       return (offset + s)
 
-    size (IArg _) = sizeOf (undefined :: Int)
+    size (IArg _) = sizeOf (undefined :: Int32)
     size (FArg _) = sizeOf (undefined :: Float)
     size (DArg _) = sizeOf (undefined :: Double)
     size (VArg a) = sizeOf a
